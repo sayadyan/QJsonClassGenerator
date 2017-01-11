@@ -21,7 +21,8 @@ public:
     void build(const QString& classesNamePrefix,
                const QString& rootClassName,
                const QString& json,
-               const QMap<QString,QString>& jmap);
+               const QMap<QString,QString>& jmap,
+               bool isExport);
     
 signals:
     void error(QString info);
@@ -65,6 +66,8 @@ private:
                                 const QString& clsName,
                                 const QString& field,
                                 const QString& type);
+    
+    void exportToFiles();
     
     QString makeFirstLetterUpper(QString str);
     

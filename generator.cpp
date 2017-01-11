@@ -1,6 +1,9 @@
 #include "generator.h"
 
 #include <QDebug>
+#include <QFile>
+#include <QDir>
+#include <QCoreApplication>
 
 #include "inflector.h"
 
@@ -12,7 +15,8 @@ Generator::Generator(QObject *parent) : QObject(parent)
 void Generator::build(const QString &classesNamePrefix,
                       const QString& rootClassName,
                       const QString& json,
-                      const QMap<QString, QString> &jmap)
+                      const QMap<QString, QString> &jmap,
+                      bool isExport)
 {
     filesData.clear();
     classInfos.clear();
@@ -36,6 +40,10 @@ void Generator::build(const QString &classesNamePrefix,
         result.append(fileName).append("\n-------------------\n");
         result.append(filesData.value(fileName));
         result.append("\n");
+    }
+    
+    if (isExport) {
+        exportToFiles();
     }
     
     emit success(result);
@@ -90,7 +98,7 @@ void Generator::generateFile(const ClassGenerateInfo &cls)
                 p.second.startsWith("QMap")) {
             // getter
             header.append("    ").append(p.second).append(" &").append(p.first)
-                    .append("()\n");
+                    .append("();\n");
             // setter
             header.append("    void set").append(makeFirstLetterUpper(p.first))
                     .append("(const ").append(p.second).append(" &")
@@ -364,7 +372,7 @@ void Generator::appendJsonConstructorsAndInit(QByteArray &arr,
         arr.append("        init(doc.array());\n");
         arr.append("    } else {\n");
         arr.append("        init(doc.object());\n");
-        arr.append("    }");
+        arr.append("    }\n");
     } else {
         arr.append("    init(doc.object());\n");
     }
@@ -387,7 +395,8 @@ void Generator::appendJsonConstructorsAndInit(QByteArray &arr,
     // Init QJsonArray
     if (cls.fields().count() == 1 &&
             cls.fields().at(0).first == "list") {
-        arr.append("void init(const QJsonArray &arr)\n");
+        arr.append("void ").append(cls.className())
+                .append("::init(const QJsonArray &arr)\n");
         arr.append("{\n");
         arr.append("    for (const QJsonValue &val : arr) {\n");
         QString subType = cls.fields().at(0).second.mid(6);
@@ -399,10 +408,13 @@ void Generator::appendJsonConstructorsAndInit(QByteArray &arr,
         arr.append("}\n\n");
     } 
     // Init QJsonObject
-    arr.append("void init(const QJsonObject &obj)\n");
+    arr.append("void ").append(cls.className())
+            .append("::init(const QJsonObject &obj)\n");
     arr.append("{\n");
 
-    if (cls.fields().count() == 1 &&
+    if (cls.fields().count() == 0) {
+        // do nothing
+    } else if (cls.fields().count() == 1 &&
             cls.fields().at(0).first == "pairs") {
         // constructor for QMap
         appendFieldSetup(arr, cls.fields().at(0).first,
@@ -492,29 +504,30 @@ QString Generator::mapFieldSetupGenerator(QByteArray &arr,
     if (newType == "void *") {
         appendData = "nullptr";
     } else if (newType == "double") {
-        appendData = "(obj"+indx+"values(key"+indx+").isString ? obj"+
-                indx+".values(key"+indx+").toString().toDouble() : obj"+
-                indx+"values(key"+indx+").toDouble())";
+        appendData = "(obj"+indx+".value(key"+indx+").isString() ? obj"+
+                indx+".value(key"+indx+").toString().toDouble() : obj"+
+                indx+".value(key"+indx+").toDouble())";
     } else if (newType == "qint64") {
-        appendData = "(qint64)(obj"+indx+"values(key"+indx+").isString ? obj"+
-                indx+".values(key"+indx+").toString().toDouble() : obj"+
-                indx+"values(key"+indx+").toDouble())";
+        appendData = "(qint64)(obj"+indx+".value(key"+indx+").isString() ? obj"+
+                indx+".value(key"+indx+").toString().toDouble() : obj"+
+                indx+".value(key"+indx+").toDouble())";
     } else if (newType == "bool") {
-        appendData = "obj"+indx+".values(key"+indx+").toBool()";
+        appendData = "obj"+indx+".value(key"+indx+").toBool()";
     } else if (newType == "QString") {
-        appendData = "obj"+indx+".values(key"+indx+").toString()";
+        appendData = "obj"+indx+".value(key"+indx+").toString()";
     } else if (newType.left(5) == "QList") {
         appendData = listFieldSetupGenerator(arr, newType,
                                              QString::number(indx.toInt()+1),
-                                             "obj"+indx+".values(key"+indx+").toArray()",
+                                             "obj"+indx+".value(key"+indx+").toArray()",
                                              spaceCount+4);
     } else if (newType.left(4) == "QMap") {
+        // unreachable
         appendData = mapFieldSetupGenerator(arr, newType,
                                             QString::number(indx.toInt()+1),
-                                            "obj"+indx+".values(key"+indx+").toObject()",
+                                            "obj"+indx+".value(key"+indx+").toObject()",
                                             spaceCount+4);
     } else {
-        appendData = newType + "(obj"+indx+".values(key"+indx+").toObject())";
+        appendData = newType + "(obj"+indx+".value(key"+indx+").toObject())";
     }
     
     arr.append(spaceCount+4, ' ').append("par").append(indx)
@@ -560,7 +573,11 @@ QString Generator::listFieldSetupGenerator(QByteArray &arr,
                                              "val"+indx+".toArray()",
                                              spaceCount+4);
     } else if (newType.left(4) == "QMap") {
-        // [TODO]
+        // unreachable
+        appendData = mapFieldSetupGenerator(arr, newType,
+                                            QString::number(indx.toInt()+1),
+                                            "val"+indx+".toObject()",
+                                            spaceCount+4);
     } else {
         appendData = newType + "(val"+ indx + ".toObject())";
     }
@@ -589,7 +606,7 @@ void Generator::appendGetterSetterPair(QByteArray &arr,
         //setter
         arr.append("void ").append(clsName).append("::")
                 .append("set").append(makeFirstLetterUpper(field))
-                .append("(const").append(type).append(" &")
+                .append("(const ").append(type).append(" &")
                 .append(field).append(")\n");
         arr.append("{\n");
         arr.append("    m").append(makeFirstLetterUpper(field))
@@ -619,6 +636,27 @@ void Generator::appendGetterSetterPair(QByteArray &arr,
         arr.append("    m").append(makeFirstLetterUpper(field))
                 .append(" = ").append(field).append(";\n");
         arr.append("}\n\n");
+    }
+}
+
+void Generator::exportToFiles()
+{
+    QString dirName = QCoreApplication::applicationDirPath() + "/model";
+    QDir dir(dirName);
+    if (dir.exists()) {
+        dir.removeRecursively();
+    }
+    dir.mkdir(dirName);
+    
+    for (QString &key : filesData.keys()) {
+        QFile f(dirName + "/" + key);
+        if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            qDebug() << "Can't open file :( " << f.errorString();
+            continue;
+        }
+        f.write(filesData.value(key));
+        f.flush();
+        f.close();
     }
 }
 

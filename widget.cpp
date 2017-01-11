@@ -15,14 +15,14 @@ Widget::Widget(QWidget *parent)
     vLayout->addWidget(mJsonEdit);
     
     mClassesNamePrefix = new QLineEdit();
-    mClassesNamePrefix->setText("QJ");
+    mClassesNamePrefix->setText("QM");
     hLayout->addWidget(new QLabel("Classes name prefix:"));
     hLayout->addWidget(mClassesNamePrefix);
     vLayout->addLayout(hLayout);
     
     hLayout = new QHBoxLayout();
     mRootClassName = new QLineEdit();
-    mRootClassName->setText("Root");
+    mRootClassName->setText("QMRoot");
     hLayout->addWidget(new QLabel("Root class name:"));
     hLayout->addWidget(mRootClassName);
     vLayout->addLayout(hLayout);
@@ -54,6 +54,10 @@ Widget::Widget(QWidget *parent)
                      &QListWidget::customContextMenuRequested,
                      this,
                      &Widget::showContextMenu); 
+    
+    mExport = new QCheckBox("Export files");
+    mExport->setChecked(false);
+    vLayout->addWidget(mExport);
     
     button = new QPushButton("Generate");
     vLayout->addWidget(button);
@@ -106,7 +110,8 @@ void Widget::generateClicked()
     mGenerator.build(mClassesNamePrefix->text(),
                      mRootClassName->text(),
                      mJsonEdit->toPlainText(),
-                     jmap);
+                     jmap,
+                     mExport->isChecked());
 }
 
 void Widget::addMapItemClicked()

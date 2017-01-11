@@ -31,6 +31,7 @@ private:
     QLineEdit* mClassesNamePrefix;
     QLineEdit* mLine1;
     QLineEdit* mLine2;
+    QCheckBox* mExport;
     
     Generator mGenerator;
 };
